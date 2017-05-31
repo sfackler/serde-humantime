@@ -31,9 +31,41 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate serde_json;
 
-use serde::de::{Deserializer, Visitor, Error, Unexpected};
+use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
 use std::fmt;
 use std::time::Duration;
+
+/// A wrapper type which implements `Deserialize` for types involving
+/// `Duration`.
+///
+/// It can only be constructed through its `Deserialize` implementations.
+pub struct De<T>(T);
+
+impl<T> De<T> {
+    /// Consumes the `De`, returning the inner value.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for De<Duration> {
+    fn deserialize<D>(d: D) -> Result<De<Duration>, D::Error>
+        where D: Deserializer<'de>
+    {
+        deserialize(d).map(De)
+    }
+}
+
+impl<'de> Deserialize<'de> for De<Option<Duration>> {
+    fn deserialize<D>(d: D) -> Result<De<Option<Duration>>, D::Error>
+        where D: Deserializer<'de>
+    {
+        match Option::<De<Duration>>::deserialize(d)? {
+            Some(De(dur)) => Ok(De(Some(dur))),
+            None => Ok(De(None)),
+        }
+    }
+}
 
 /// Deserializes a `Duration` via the humantime crate.
 ///
@@ -46,6 +78,7 @@ pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
 
     impl<'de2> Visitor<'de2> for V {
         type Value = Duration;
+
         fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             fmt.write_str("a duration")
         }
@@ -65,7 +98,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn derive() {
+    fn with() {
         #[derive(Deserialize)]
         struct Foo {
             #[serde(with = "super")]
@@ -75,5 +108,25 @@ mod test {
         let json = r#"{"time": "15 seconds"}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn de_option() {
+        #[derive(Deserialize)]
+        struct Foo {
+            time: De<Option<Duration>>,
+        }
+
+        let json = r#"{"time": "15 seconds"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time.into_inner(), Some(Duration::from_secs(15)));
+
+        let json = r#"{"time": null}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time.into_inner(), None);
+
+        let json = r#"{}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time.into_inner(), None);
     }
 }
