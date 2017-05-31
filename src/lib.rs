@@ -3,6 +3,9 @@
 //!
 //! # Examples
 //!
+//! You can use the `deserialize` function with the `with` or `deserialize_with`
+//! annotations:
+//!
 //! ```
 //! extern crate serde_humantime;
 //! extern crate serde;
@@ -15,6 +18,25 @@
 //! struct Foo {
 //!     #[serde(with = "serde_humantime")]
 //!     timeout: Duration,
+//! }
+//!
+//! # fn main() {}
+//! ```
+//!
+//! Or use the `De` wrapper type:
+//!
+//! ```
+//! extern crate serde_humantime;
+//! extern crate serde;
+//! #[macro_use]
+//! extern crate serde_derive;
+//!
+//! use serde_humantime::De;
+//! use std::time::Duration;
+//!
+//! #[derive(Deserialize)]
+//! struct Foo {
+//!     timeout: De<Option<Duration>>,
 //! }
 //!
 //! # fn main() {}
