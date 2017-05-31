@@ -20,6 +20,8 @@
 //! # fn main() {}
 //! ```
 #![warn(missing_docs)]
+#![doc(html_root_url="https://docs.rs/serde-humantime/0.1.0")]
+
 extern crate humantime;
 extern crate serde;
 
