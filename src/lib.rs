@@ -1,3 +1,25 @@
+//! A crate providing Serde deserializers for `Duration`s via the `humantime`
+//! crate.
+//!
+//! # Examples
+//!
+//! ```
+//! extern crate serde_humantime;
+//! extern crate serde;
+//! #[macro_use]
+//! extern crate serde_derive;
+//!
+//! use std::time::Duration;
+//!
+//! #[derive(Deserialize)]
+//! struct Foo {
+//!     #[serde(with = "serde_humantime")]
+//!     timeout: Duration,
+//! }
+//!
+//! # fn main() {}
+//! ```
+#![warn(missing_docs)]
 extern crate humantime;
 extern crate serde;
 
@@ -7,53 +29,38 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate serde_json;
 
-use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
+use serde::de::{Deserializer, Visitor, Error, Unexpected};
 use std::fmt;
 use std::time::Duration;
 
-pub struct De(pub Duration);
-
-impl<'de> Deserialize<'de> for De {
-    fn deserialize<D>(d: D) -> Result<De, D::Error>
-        where D: Deserializer<'de>
-    {
-        struct V;
-
-        impl<'de2> Visitor<'de2> for V {
-            type Value = De;
-            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                fmt.write_str("a duration")
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<De, E>
-                where E: Error
-            {
-                humantime::parse_duration(v)
-                    .map(De)
-                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
-            }
-        }
-
-        d.deserialize_str(V)
-    }
-}
-
+/// Deserializes a `Duration` via the humantime crate.
+///
+/// This function can be used with `serde_derive`'s `with` and
+/// `deserialize_with` annotations.
 pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
     where D: Deserializer<'de>
 {
-    De::deserialize(d).map(|de| de.0)
+    struct V;
+
+    impl<'de2> Visitor<'de2> for V {
+        type Value = Duration;
+        fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+            fmt.write_str("a duration")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Duration, E>
+            where E: Error
+        {
+            humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+        }
+    }
+
+    d.deserialize_str(V)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn de() {
-        let json = r#""15 seconds""#;
-        let duration = serde_json::from_str::<De>(json).unwrap();
-        assert_eq!(duration.0, Duration::from_secs(15));
-    }
 
     #[test]
     fn derive() {
