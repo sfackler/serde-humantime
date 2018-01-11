@@ -155,4 +155,18 @@ mod test {
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time.into_inner(), None);
     }
+
+    #[test]
+    fn de_debug_fmt() {
+        #[derive(Deserialize, Debug)]
+        struct Foo {
+            time: De<Option<Duration>>,
+        }
+
+        let foo = Foo {
+            time: De(Some(Duration::from_secs(7))),
+        };
+
+        let _ = format!("{:?}", foo);
+    }
 }
