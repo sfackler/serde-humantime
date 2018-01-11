@@ -1,11 +1,11 @@
 [package]
 name = "serde-humantime"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Steven Fackler <sfackler@gmail.com>"]
 description = "A Serde deserializer for `Duration`s using the `humantime` crate"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/sfackler/serde-humantime"
-documentation = "https://docs.rs/serde-humantime/0.1.1/serde_humantime"
+documentation = "https://docs.rs/serde-humantime/0.1.2/serde_humantime"
 readme = "README.md"
 
 [dependencies]

@@ -42,7 +42,7 @@
 //! # fn main() {}
 //! ```
 #![warn(missing_docs)]
-#![doc(html_root_url="https://docs.rs/serde-humantime/0.1.1")]
+#![doc(html_root_url = "https://docs.rs/serde-humantime/0.1.2")]
 
 extern crate humantime;
 extern crate serde;
@@ -53,7 +53,7 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate serde_json;
 
-use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
+use serde::de::{Deserialize, Deserializer, Error, Unexpected, Visitor};
 use std::fmt;
 use std::time::Duration;
 
@@ -61,6 +61,7 @@ use std::time::Duration;
 /// `Duration`.
 ///
 /// It can only be constructed through its `Deserialize` implementations.
+#[derive(Debug)]
 pub struct De<T>(T);
 
 impl<T> De<T> {
@@ -72,7 +73,8 @@ impl<T> De<T> {
 
 impl<'de> Deserialize<'de> for De<Duration> {
     fn deserialize<D>(d: D) -> Result<De<Duration>, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         deserialize(d).map(De)
     }
@@ -80,7 +82,8 @@ impl<'de> Deserialize<'de> for De<Duration> {
 
 impl<'de> Deserialize<'de> for De<Option<Duration>> {
     fn deserialize<D>(d: D) -> Result<De<Option<Duration>>, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         match Option::<De<Duration>>::deserialize(d)? {
             Some(De(dur)) => Ok(De(Some(dur))),
@@ -94,7 +97,8 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
 /// This function can be used with `serde_derive`'s `with` and
 /// `deserialize_with` annotations.
 pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: Deserializer<'de>
+where
+    D: Deserializer<'de>,
 {
     struct V;
 
@@ -106,7 +110,8 @@ pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
         }
 
         fn visit_str<E>(self, v: &str) -> Result<Duration, E>
-            where E: Error
+        where
+            E: Error,
         {
             humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
         }
@@ -123,8 +128,7 @@ mod test {
     fn with() {
         #[derive(Deserialize)]
         struct Foo {
-            #[serde(with = "super")]
-            time: Duration,
+            #[serde(with = "super")] time: Duration,
         }
 
         let json = r#"{"time": "15 seconds"}"#;
@@ -150,5 +154,19 @@ mod test {
         let json = r#"{}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time.into_inner(), None);
+    }
+
+    #[test]
+    fn de_debug_fmt() {
+        #[derive(Deserialize, Debug)]
+        struct Foo {
+            time: De<Option<Duration>>,
+        }
+
+        let foo = Foo {
+            time: De(Some(Duration::from_secs(7))),
+        };
+
+        let _ = format!("{:?}", foo);
     }
 }
