@@ -175,4 +175,25 @@ mod test {
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time.into_inner(), None);
     }
+
+    #[test]
+    fn unwrapped_option() {
+        #[derive(Deserialize)]
+        struct Foo {
+            #[serde(with = "super", default)]
+            time: Option<Duration>,
+        }
+
+        let json = r#"{"time": "15 seconds"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, Some(Duration::from_secs(15)));
+
+        let json = r#"{"time": null}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
+
+        let json = r#"{}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
+    }
 }
