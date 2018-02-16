@@ -56,7 +56,7 @@ extern crate serde_json;
 use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
 use serde::ser::{Serializer, Serialize};
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 mod traits;
 
@@ -140,7 +140,41 @@ impl traits::Sealed for Duration {
             fn visit_str<E>(self, v: &str) -> Result<Duration, E>
                 where E: Error
             {
-                humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+                humantime::parse_duration(v)
+                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+            }
+        }
+
+        deserializer.deserialize_str(V)
+    }
+}
+
+impl traits::Sealed for SystemTime {
+
+    fn encode<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        humantime::format_rfc3339(*self).to_string().serialize(serializer)
+    }
+
+    fn decode<'de, D>(deserializer: D) -> Result<Self, D::Error>
+        where Self: Sized,
+              D: Deserializer<'de>
+    {
+        struct V;
+
+        impl<'de2> Visitor<'de2> for V {
+            type Value = SystemTime;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.write_str("a timestamp")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<SystemTime, E>
+                where E: Error
+            {
+                humantime::parse_rfc3339_weak(v)
+                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
             }
         }
 
@@ -149,9 +183,11 @@ impl traits::Sealed for Duration {
 }
 
 impl HumanTime for Duration {}
+impl HumanTime for SystemTime {}
 
 #[cfg(test)]
 mod test {
+    use std::time::{SystemTime, UNIX_EPOCH};
     use super::*;
 
     #[test]
@@ -167,6 +203,21 @@ mod test {
         assert_eq!(foo.time, Duration::from_secs(15));
         let reverse = serde_json::to_string(&foo).unwrap();
         assert_eq!(reverse, r#"{"time":"15s"}"#);
+    }
+
+    #[test]
+    fn timestamp() {
+        #[derive(Serialize, Deserialize)]
+        struct Foo {
+            #[serde(with = "super")]
+            time: SystemTime,
+        }
+
+        let json = r#"{"time": "2013-01-01T15:44:00Z"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, UNIX_EPOCH + Duration::new(1357055040, 0));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"2013-01-01T15:44:00Z"}"#);
     }
 
     #[test]
