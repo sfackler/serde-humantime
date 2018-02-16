@@ -54,8 +54,13 @@ extern crate serde_derive;
 extern crate serde_json;
 
 use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
+use serde::ser::Serializer;
 use std::fmt;
 use std::time::Duration;
+
+mod traits;
+
+pub use traits::HumanTime;
 
 /// A wrapper type which implements `Deserialize` for types involving
 /// `Duration`.
@@ -74,7 +79,7 @@ impl<'de> Deserialize<'de> for De<Duration> {
     fn deserialize<D>(d: D) -> Result<De<Duration>, D::Error>
         where D: Deserializer<'de>
     {
-        deserialize(d).map(De)
+        deserialize::<Duration, _>(d).map(De)
     }
 }
 
@@ -93,27 +98,46 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
 ///
 /// This function can be used with `serde_derive`'s `with` and
 /// `deserialize_with` annotations.
-pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: Deserializer<'de>
+pub fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
+    where D: Deserializer<'de>,
+          T: HumanTime,
 {
-    struct V;
+    T::decode(d)
+}
 
-    impl<'de2> Visitor<'de2> for V {
-        type Value = Duration;
+impl traits::Sealed for Duration {
 
-        fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            fmt.write_str("a duration")
-        }
-
-        fn visit_str<E>(self, v: &str) -> Result<Duration, E>
-            where E: Error
-        {
-            humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
-        }
+    fn encode<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        unimplemented!();
     }
 
-    d.deserialize_str(V)
+    fn decode<'de, D>(deserializer: D) -> Result<Self, D::Error>
+        where Self: Sized,
+              D: Deserializer<'de>
+    {
+        struct V;
+
+        impl<'de2> Visitor<'de2> for V {
+            type Value = Duration;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.write_str("a duration")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Duration, E>
+                where E: Error
+            {
+                humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+            }
+        }
+
+        deserializer.deserialize_str(V)
+    }
 }
+
+impl HumanTime for Duration {}
 
 #[cfg(test)]
 mod test {
