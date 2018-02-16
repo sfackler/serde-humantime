@@ -54,7 +54,7 @@ extern crate serde_derive;
 extern crate serde_json;
 
 use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
-use serde::ser::Serializer;
+use serde::ser::{Serializer, Serialize};
 use std::fmt;
 use std::time::Duration;
 
@@ -94,7 +94,7 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
     }
 }
 
-/// Deserializes a `Duration` via the humantime crate.
+/// Deserializes a `Duration` or `SystemTime` via the humantime crate.
 ///
 /// This function can be used with `serde_derive`'s `with` and
 /// `deserialize_with` annotations.
@@ -105,12 +105,23 @@ pub fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
     T::decode(d)
 }
 
+/// Deserializes a `Duration` or `SystemTime` via the humantime crate.
+///
+/// This function can be used with `serde_derive`'s `with` and
+/// `serialize_with` annotations.
+pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where T: HumanTime,
+          S: Serializer
+{
+    traits::Sealed::encode(value, serializer)
+}
+
 impl traits::Sealed for Duration {
 
     fn encode<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
     {
-        unimplemented!();
+        humantime::format_duration(*self).to_string().serialize(serializer)
     }
 
     fn decode<'de, D>(deserializer: D) -> Result<Self, D::Error>
@@ -145,7 +156,7 @@ mod test {
 
     #[test]
     fn with() {
-        #[derive(Deserialize)]
+        #[derive(Serialize, Deserialize)]
         struct Foo {
             #[serde(with = "super")]
             time: Duration,
@@ -154,6 +165,8 @@ mod test {
         let json = r#"{"time": "15 seconds"}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time, Duration::from_secs(15));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"15s"}"#);
     }
 
     #[test]
