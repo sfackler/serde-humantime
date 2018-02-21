@@ -9,7 +9,7 @@ documentation = "https://docs.rs/serde-humantime/0.1.1/serde_humantime"
 readme = "README.md"
 
 [dependencies]
-humantime = "1.0"
+humantime = "1.1.0"
 serde = "1.0"
 
 [dev-dependencies]

@@ -54,8 +54,13 @@ extern crate serde_derive;
 extern crate serde_json;
 
 use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
+use serde::ser::{Serializer, Serialize};
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+mod traits;
+
+pub use traits::HumanTime;
 
 /// A wrapper type which implements `Deserialize` for types involving
 /// `Duration`.
@@ -74,7 +79,7 @@ impl<'de> Deserialize<'de> for De<Duration> {
     fn deserialize<D>(d: D) -> Result<De<Duration>, D::Error>
         where D: Deserializer<'de>
     {
-        deserialize(d).map(De)
+        deserialize::<Duration, _>(d).map(De)
     }
 }
 
@@ -89,39 +94,105 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
     }
 }
 
-/// Deserializes a `Duration` via the humantime crate.
+/// Deserializes a `Duration` or `SystemTime` via the humantime crate.
 ///
 /// This function can be used with `serde_derive`'s `with` and
 /// `deserialize_with` annotations.
-pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: Deserializer<'de>
+pub fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
+    where D: Deserializer<'de>,
+          T: HumanTime,
 {
-    struct V;
+    T::decode(d)
+}
 
-    impl<'de2> Visitor<'de2> for V {
-        type Value = Duration;
+/// Deserializes a `Duration` or `SystemTime` via the humantime crate.
+///
+/// This function can be used with `serde_derive`'s `with` and
+/// `serialize_with` annotations.
+pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where T: HumanTime,
+          S: Serializer
+{
+    traits::Sealed::encode(value, serializer)
+}
 
-        fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            fmt.write_str("a duration")
-        }
+impl traits::Sealed for Duration {
 
-        fn visit_str<E>(self, v: &str) -> Result<Duration, E>
-            where E: Error
-        {
-            humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
-        }
+    fn encode<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        humantime::format_duration(*self).to_string().serialize(serializer)
     }
 
-    d.deserialize_str(V)
+    fn decode<'de, D>(deserializer: D) -> Result<Self, D::Error>
+        where Self: Sized,
+              D: Deserializer<'de>
+    {
+        struct V;
+
+        impl<'de2> Visitor<'de2> for V {
+            type Value = Duration;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.write_str("a duration")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Duration, E>
+                where E: Error
+            {
+                humantime::parse_duration(v)
+                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+            }
+        }
+
+        deserializer.deserialize_str(V)
+    }
 }
+
+impl traits::Sealed for SystemTime {
+
+    fn encode<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        humantime::format_rfc3339(*self).to_string().serialize(serializer)
+    }
+
+    fn decode<'de, D>(deserializer: D) -> Result<Self, D::Error>
+        where Self: Sized,
+              D: Deserializer<'de>
+    {
+        struct V;
+
+        impl<'de2> Visitor<'de2> for V {
+            type Value = SystemTime;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.write_str("a timestamp")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<SystemTime, E>
+                where E: Error
+            {
+                humantime::parse_rfc3339_weak(v)
+                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+            }
+        }
+
+        deserializer.deserialize_str(V)
+    }
+}
+
+impl HumanTime for Duration {}
+impl HumanTime for SystemTime {}
 
 #[cfg(test)]
 mod test {
+    use std::time::{SystemTime, UNIX_EPOCH};
     use super::*;
 
     #[test]
     fn with() {
-        #[derive(Deserialize)]
+        #[derive(Serialize, Deserialize)]
         struct Foo {
             #[serde(with = "super")]
             time: Duration,
@@ -130,6 +201,23 @@ mod test {
         let json = r#"{"time": "15 seconds"}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time, Duration::from_secs(15));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"15s"}"#);
+    }
+
+    #[test]
+    fn timestamp() {
+        #[derive(Serialize, Deserialize)]
+        struct Foo {
+            #[serde(with = "super")]
+            time: SystemTime,
+        }
+
+        let json = r#"{"time": "2013-01-01T15:44:00Z"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, UNIX_EPOCH + Duration::new(1357055040, 0));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"2013-01-01T15:44:00Z"}"#);
     }
 
     #[test]
@@ -150,5 +238,26 @@ mod test {
         let json = r#"{}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time.into_inner(), None);
+    }
+
+    #[test]
+    fn unwrapped_option() {
+        #[derive(Deserialize)]
+        struct Foo {
+            #[serde(with = "super", default)]
+            time: Option<Duration>,
+        }
+
+        let json = r#"{"time": "15 seconds"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, Some(Duration::from_secs(15)));
+
+        let json = r#"{"time": null}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
+
+        let json = r#"{}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
     }
 }
