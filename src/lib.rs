@@ -53,8 +53,12 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate serde_json;
 
-use serde::de::{Deserialize, Deserializer, Visitor, Error, Unexpected};
-use std::fmt;
+mod wrapper;
+
+pub use wrapper::Serde;
+
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
 use std::time::Duration;
 
 /// A wrapper type which implements `Deserialize` for types involving
@@ -74,7 +78,7 @@ impl<'de> Deserialize<'de> for De<Duration> {
     fn deserialize<D>(d: D) -> Result<De<Duration>, D::Error>
         where D: Deserializer<'de>
     {
-        deserialize(d).map(De)
+        Serde::deserialize(d).map(Serde::into_inner).map(De)
     }
 }
 
@@ -82,10 +86,7 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
     fn deserialize<D>(d: D) -> Result<De<Option<Duration>>, D::Error>
         where D: Deserializer<'de>
     {
-        match Option::<De<Duration>>::deserialize(d)? {
-            Some(De(dur)) => Ok(De(Some(dur))),
-            None => Ok(De(None)),
-        }
+        Serde::deserialize(d).map(Serde::into_inner).map(De)
     }
 }
 
@@ -93,26 +94,22 @@ impl<'de> Deserialize<'de> for De<Option<Duration>> {
 ///
 /// This function can be used with `serde_derive`'s `with` and
 /// `deserialize_with` annotations.
-pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: Deserializer<'de>
+pub fn deserialize<'a, T, D>(d: D) -> Result<T, D::Error>
+    where Serde<T>: Deserialize<'a>,
+          D: Deserializer<'a>,
 {
-    struct V;
+    Serde::deserialize(d).map(Serde::into_inner)
+}
 
-    impl<'de2> Visitor<'de2> for V {
-        type Value = Duration;
-
-        fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            fmt.write_str("a duration")
-        }
-
-        fn visit_str<E>(self, v: &str) -> Result<Duration, E>
-            where E: Error
-        {
-            humantime::parse_duration(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
-        }
-    }
-
-    d.deserialize_str(V)
+/// Serializes a `Duration` via the humantime crate.
+///
+/// This function can be used with `serde_derive`'s `with` and
+/// `serialize_with` annotations.
+pub fn serialize<T, S>(d: &T, s: S) -> Result<S::Ok, S::Error>
+    where for<'a> Serde<&'a T>: Serialize,
+          S: Serializer,
+{
+    Serde::from(d).serialize(s)
 }
 
 #[cfg(test)]
@@ -121,7 +118,7 @@ mod test {
 
     #[test]
     fn with() {
-        #[derive(Deserialize)]
+        #[derive(Serialize, Deserialize)]
         struct Foo {
             #[serde(with = "super")]
             time: Duration,
@@ -130,6 +127,33 @@ mod test {
         let json = r#"{"time": "15 seconds"}"#;
         let foo = serde_json::from_str::<Foo>(json).unwrap();
         assert_eq!(foo.time, Duration::from_secs(15));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"15s"}"#);
+    }
+
+    #[test]
+    fn with_option() {
+        #[derive(Serialize, Deserialize)]
+        struct Foo {
+            #[serde(with = "super", default)]
+            time: Option<Duration>,
+        }
+
+        let json = r#"{"time": "15 seconds"}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, Some(Duration::from_secs(15)));
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":"15s"}"#);
+
+        let json = r#"{"time": null}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
+        let reverse = serde_json::to_string(&foo).unwrap();
+        assert_eq!(reverse, r#"{"time":null}"#);
+
+        let json = r#"{}"#;
+        let foo = serde_json::from_str::<Foo>(json).unwrap();
+        assert_eq!(foo.time, None);
     }
 
     #[test]
