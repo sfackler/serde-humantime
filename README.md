@@ -3,7 +3,7 @@
 
 [Documentation](https://docs.rs/serde-humantime)
 
-A Serde deserializer for `Duration`s using the `humantime` crate.
+A Serde deserializer/serializer for `Duration`s using the `humantime` crate.
 
 ## License
 
